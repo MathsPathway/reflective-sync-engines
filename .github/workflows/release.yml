@@ -1,0 +1,37 @@
+# Turns an upload into a release.
+#
+# The source repository is private, so its workflow cannot create releases
+# here with its own token. Instead it pushes a tag `upload/engines-<n>`, over a
+# deploy key that can write to this repository and nothing else, pointing at a
+# commit that holds only that release's files. This workflow, with this
+# repository's own token, publishes them as release `engines-<n>` and deletes
+# the upload tag, so the files live on as release assets and not in git.
+#
+# Nothing here decides what a build trusts: the SDK checks every file against
+# the SHA-256 its own engines.json pins.
+
+name: Release
+
+on:
+  push:
+    tags: ['upload/engines-*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPLOAD: ${{ github.ref_name }}
+        run: |
+          release="${UPLOAD#upload/}"
+          files=$(ls *.so *.dylib *.dll engines.json 2>/dev/null)
+          [ -n "$files" ] || { echo "::error::$UPLOAD holds no engine files"; exit 1; }
+          gh release create "$release" $files --target main \
+            --title "Engines $release" --notes-file NOTES.md
+          git push origin ":refs/tags/$UPLOAD"
